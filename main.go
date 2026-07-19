@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,6 +11,10 @@ import (
 
 	"boot.dev/linko/internal/store"
 )
+
+// DONE: Removed old logger and used Dependecy Injection
+// before: Global logger to send logs to os.Stderr. Useful to steer clear from clogging up the main output of the program
+//var logger = log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -25,12 +29,24 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	st, err := store.New(dataDir)
+	// Creating non-global loggers
+	// #1 Standard Logger (example: INFO: <timestamp> Linko is shutting down.)
+	standardLogger := log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
+	accessLogFileHandler, err := os.OpenFile("linko.access.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create store: %v\n", err)
+		standardLogger.Printf("failed to create access logger: %v", err)
 		return 1
 	}
-	s := newServer(*st, httpPort, cancel)
+	// #2 Access Logger (example: DEBUG: <timestamp> GET / )
+	accessLogger := log.New(accessLogFileHandler, "INFO: ", log.LstdFlags)
+
+	// Running the server.
+	st, err := store.New(dataDir, standardLogger)
+	if err != nil {
+		standardLogger.Printf("failed to create store: %v", err)
+		return 1
+	}
+	s := newServer(*st, accessLogger, standardLogger, httpPort, cancel)
 	var serverErr error
 	go func() {
 		serverErr = s.start()
@@ -41,11 +57,11 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	defer cancel()
 
 	if err := s.shutdown(shutdownCtx); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to shutdown server: %v\n", err)
+		standardLogger.Printf("failed to shutdown server: %v", err)
 		return 1
 	}
 	if serverErr != nil {
-		fmt.Fprintf(os.Stderr, "server error: %v\n", serverErr)
+		standardLogger.Printf("server error: %v", serverErr)
 		return 1
 	}
 	return 0

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -12,12 +13,14 @@ import (
 )
 
 type server struct {
-	httpServer *http.Server
-	store      store.Store
-	cancel     context.CancelFunc
+	httpServer     *http.Server
+	store          store.Store
+	cancel         context.CancelFunc
+	accessLogger   *log.Logger
+	standardLogger *log.Logger
 }
 
-func newServer(store store.Store, port int, cancel context.CancelFunc) *server {
+func newServer(store store.Store, accessLogger *log.Logger, standardLogger *log.Logger, port int, cancel context.CancelFunc) *server {
 	mux := http.NewServeMux()
 
 	srv := &http.Server{
@@ -26,18 +29,20 @@ func newServer(store store.Store, port int, cancel context.CancelFunc) *server {
 	}
 
 	s := &server{
-		httpServer: srv,
-		store:      store,
-		cancel:     cancel,
+		httpServer:     srv,
+		store:          store,
+		cancel:         cancel,
+		accessLogger:   accessLogger,
+		standardLogger: standardLogger,
 	}
 
-	mux.HandleFunc("GET /", s.handlerIndex)
-	mux.Handle("POST /api/login", s.authMiddleware(http.HandlerFunc(s.handlerLogin)))
-	mux.Handle("POST /api/shorten", s.authMiddleware(http.HandlerFunc(s.handlerShortenLink)))
-	mux.Handle("GET /api/stats", s.authMiddleware(http.HandlerFunc(s.handlerStats)))
-	mux.Handle("GET /api/urls", s.authMiddleware(http.HandlerFunc(s.handlerListURLs)))
-	mux.HandleFunc("GET /{shortCode}", s.handlerRedirect)
-	mux.HandleFunc("POST /admin/shutdown", s.handlerShutdown)
+	mux.Handle("GET /", requestLogger(accessLogger)(http.HandlerFunc(s.handlerIndex)))
+	mux.Handle("POST /api/login", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerLogin))))
+	mux.Handle("POST /api/shorten", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerShortenLink))))
+	mux.Handle("GET /api/stats", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerStats))))
+	mux.Handle("GET /api/urls", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerListURLs))))
+	mux.Handle("GET /{shortCode}", requestLogger(accessLogger)(http.HandlerFunc(s.handlerRedirect)))
+	mux.Handle("POST /admin/shutdown", requestLogger(accessLogger)(http.HandlerFunc(s.handlerShutdown)))
 
 	return s
 }
@@ -50,10 +55,20 @@ func (s *server) start() error {
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+
+	// Log message:
+	//  calling the methid 'Addr', then asserting its results to typeof *net.TCPAddr
+	tcpAddr := ln.Addr().(*net.TCPAddr)
+	port := tcpAddr.Port
+	s.standardLogger.Printf("Linko is running on http://localhost:%d", port)
+
 	return nil
 }
 
 func (s *server) shutdown(ctx context.Context) error {
+	// Log message:
+	s.standardLogger.Println("Linko is shutting down")
+
 	return s.httpServer.Shutdown(ctx)
 }
 
@@ -64,4 +79,14 @@ func (s *server) handlerShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	go s.cancel()
+}
+
+// Middleware to log with Dependency Injected logger, stored in s.standardLogger
+func requestLogger(logger *log.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			logger.Printf("Served request: %s %s", r.Method, r.URL.Path)
+		})
+	}
 }
