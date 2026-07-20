@@ -68,7 +68,11 @@ func (s *server) start() error {
 	//  calling the method 'Addr', then asserting its results to typeof *net.TCPAddr
 	tcpAddr := ln.Addr().(*net.TCPAddr)
 	port := tcpAddr.Port
-	s.logger.Debug(fmt.Sprintf("Linko is running on http://localhost:%d", port))
+	s.logger.Debug(
+		fmt.Sprintf("Linko is running on http://localhost:%d", port),
+		slog.String("addr", tcpAddr.String()),
+		slog.Int("port", port),
+	)
 
 	// Blocking call, 'ln' listener accepts HTTP requests. Therefore custom logger must reside above this next codeline:
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
@@ -98,7 +102,12 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)
-			logger.Info(fmt.Sprintf("Served request: %s %s", r.Method, r.URL.Path))
+			logger.Info(
+				"Served request",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("client_ip", r.RemoteAddr),
+			)
 		})
 	}
 }
@@ -138,7 +147,7 @@ func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 	*/
 	const bufferedBytes = 8192
 	bufferedFile := bufio.NewWriterSize(file, bufferedBytes) // buffered bytes, 8192
-	infoHandler := slog.NewTextHandler(bufferedFile, &slog.HandlerOptions{
+	infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 		Level: slog.LevelInfo, // ^ Debug and above into FILE ^
 	})
 	// A. log.Debug (into STDERR). Create single logger with different destinations by level
