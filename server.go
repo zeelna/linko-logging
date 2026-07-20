@@ -129,7 +129,6 @@ type closeFunc func() error
 // Helper to set the destination(s) of the all log entries based on whether 'LINKO_LOG_FILE' environment variable is set.
 func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 
-
 	/* // A more practical approach is a single logger that routes logs to different destinations by level.
 	//For example, everything goes to STDERR, but only INFO and higher go to a file.
 	// As of Go 1.26, this is easy with slog.NewMultiHandler:
@@ -140,7 +139,7 @@ func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 		// A. log.DEBUG. Create single logger with different destinations by level
 		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelDebug,
-			ReplaceAttr: _replaceAttr,
+			ReplaceAttr: _replaceAttr, // any logged error is accompanied by stack trace + error
 		}) // ^ Debug and above into os.Stderr ^
 		logger := slog.New(debugHandler)
 		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
@@ -163,12 +162,12 @@ func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 	bufferedFile := bufio.NewWriterSize(file, bufferedBytes) // buffered bytes, 8192
 	infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 		Level:       slog.LevelInfo, // ^ Debug and above into FILE ^
-		ReplaceAttr: _replaceAttr,
+		ReplaceAttr: _replaceAttr,   // any logged error is accompanied by stack trace + error
 	})
 	// A. log.Debug (into STDERR). Create single logger with different destinations by level
 	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level:       slog.LevelDebug, // ^ Debug and above into os.Stderr ^
-		ReplaceAttr: _replaceAttr,
+		ReplaceAttr: _replaceAttr,    // any logged error is accompanied by stack trace + error
 	})
 	//  %%% %%% %%% %%% %%% %%% %%% %%% %%% %%%
 	logger := slog.New(slog.NewMultiHandler(

@@ -37,6 +37,12 @@ curl -i -X POST \
 http://localhost:8899/api/login
 ```
 
+```bash
+curl -i -X POST \
+-u 'saruman:invalidPassword' \
+http://localhost:8899/api/login
+```
+
 ### 6) POST /api/login as frodo:
 ```bash
 curl -i -X POST http://localhost:8899/api/login \
