@@ -5,8 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -18,10 +17,10 @@ type server struct {
 	httpServer *http.Server
 	store      store.Store
 	cancel     context.CancelFunc
-	logger     *log.Logger
+	logger     *slog.Logger
 }
 
-func newServer(store store.Store, logger *log.Logger, port int, cancel context.CancelFunc) *server {
+func newServer(store store.Store, logger *slog.Logger, port int, cancel context.CancelFunc) *server {
 	mux := http.NewServeMux()
 
 	/* // Option 1: Logger must be through middleware for each HTTP endpoint
@@ -69,7 +68,7 @@ func (s *server) start() error {
 	//  calling the method 'Addr', then asserting its results to typeof *net.TCPAddr
 	tcpAddr := ln.Addr().(*net.TCPAddr)
 	port := tcpAddr.Port
-	s.logger.Printf("Linko is running on http://localhost:%d", port)
+	s.logger.Debug(fmt.Sprintf("Linko is running on http://localhost:%d", port))
 
 	// Blocking call, 'ln' listener accepts HTTP requests. Therefore custom logger must reside above this next codeline:
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
@@ -80,7 +79,7 @@ func (s *server) start() error {
 
 func (s *server) shutdown(ctx context.Context) error {
 	// Log message:
-	s.logger.Println("Linko is shutting down")
+	s.logger.Debug("Linko is shutting down")
 
 	return s.httpServer.Shutdown(ctx)
 }
@@ -95,11 +94,11 @@ func (s *server) handlerShutdown(w http.ResponseWriter, r *http.Request) {
 }
 
 // Middleware to log with Dependency Injected logger, stored in s.standardLogger
-func requestLogger(logger *log.Logger) func(http.Handler) http.Handler {
+func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)
-			logger.Printf("Served request: %s %s", r.Method, r.URL.Path)
+			logger.Info(fmt.Sprintf("Served request: %s %s", r.Method, r.URL.Path))
 		})
 	}
 }
@@ -108,31 +107,29 @@ func requestLogger(logger *log.Logger) func(http.Handler) http.Handler {
 type closeFunc func() error
 
 // Helper to set the destination(s) of the all log entries based on whether 'LINKO_LOG_FILE' environment variable is set.
-func initializeLogger(logFileEnv string) (*log.Logger, closeFunc, error) {
+func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
+	/* // A more practical approach is a single logger that routes logs to different destinations by level.
+	//For example, everything goes to STDERR, but only INFO and higher go to a file.
+	// As of Go 1.26, this is easy with slog.NewMultiHandler:
+	*/
 	// Assume that in production, Linko has a LINKO_LOG_FILE environment variable set.
-	// In local development and staging, it is not set.
-	// logFile := os.Getenv("LINKO_LOG_FILE")
-
 	// If LINKO_LOG_FILE environment variable is not set, the logger only write to STDERR.
 	if logFileEnv == "" {
-		logger := log.New(os.Stderr, "", log.LstdFlags)
+		// A. log.DEBUG. Create single logger with different destinations by level
+		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}) // ^ Debug and above into os.Stderr ^
+		logger := slog.New(debugHandler)
 		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
 		var closeFn closeFunc = func() error { return nil }
 		return logger, closeFn, nil
 	}
 	// Otherwise if LINKO_LOG_FILE is set, it should write both to file and STDERR.
+	//  %%% %%% %%% B. log.Info (into file).  %%% %%% %%%
 	file, err := os.OpenFile(logFileEnv, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, nil, err
 	}
-	// You’re closing the file before the logger writes to it. Therefore, comment out this section.
-	//So MultiWriter is holding a closed file handle. That’s why stderr works, but the file stays empty.
-	/*
-		if err := file.Close(); err != nil {
-		 	log.Fatalf("failed to close log file: %v", err)
-		}
-	*/
-
 	/* Logs are written to disk, no matter how large or small the message is.
 		- That's potentially a lot of disk I/O, and it can really slow down our entire application
 	 	+ use a buffered writer like bufio.Writer around the file.
@@ -141,9 +138,20 @@ func initializeLogger(logFileEnv string) (*log.Logger, closeFunc, error) {
 	*/
 	const bufferedBytes = 8192
 	bufferedFile := bufio.NewWriterSize(file, bufferedBytes) // buffered bytes, 8192
-	multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
-	logger := log.New(multiWriter, "", log.LstdFlags)
+	infoHandler := slog.NewTextHandler(bufferedFile, &slog.HandlerOptions{
+		Level: slog.LevelInfo, // ^ Debug and above into FILE ^
+	})
+	// A. log.Debug (into STDERR). Create single logger with different destinations by level
+	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug, // ^ Debug and above into os.Stderr ^
+	})
+	//  %%% %%% %%% %%% %%% %%% %%% %%% %%% %%%
+	logger := slog.New(slog.NewMultiHandler(
+		debugHandler, // DEBUG and above: into os.Stderr
+		infoHandler,  // INFO and above: into bufferedFile (linko.access.log)
+	))
 
+	// ----- Safe cleanup (fn-expression) to free resources before program exits ------------
 	// Function expression to clear *bufio.Writer and close *File before program exits.
 	var closeFn closeFunc = func() error {
 		if err := bufferedFile.Flush(); err != nil {
@@ -152,8 +160,7 @@ func initializeLogger(logFileEnv string) (*log.Logger, closeFunc, error) {
 		if err := file.Close(); err != nil {
 			return err
 		}
-		// Happy path:
-		return nil
+		return nil //  <- Happy path of function expression named closeFn
 	}
 	return logger, closeFn, nil
 }
