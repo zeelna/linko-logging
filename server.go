@@ -23,16 +23,22 @@ type server struct {
 func newServer(store store.Store, logger *log.Logger, port int, cancel context.CancelFunc) *server {
 	mux := http.NewServeMux()
 
+	/* // Option 1: Logger must be through middleware for each HTTP endpoint
+	// example: mux.Handle("POST /api/login", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerLogin))))
+	// Pros: less reliance on decorator / middleware pattern
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
-	/* // Next step is to try to avoid duplicate logging-middleware calls for each http endpoint request handler methods
+	*/
+
+	// Option 2: Logger added to ALL endpoints,
+	// example: mux.Handle("POST /api/login", s.authMiddleware(http.HandlerFunc(s.handlerLogin)))
+	// Pros: avoid duplicate logging-middleware calls for each http endpoint request handler methods
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: requestLogger(logger)(mux),
-	}
-	*/ // mux has serveHTTP method
+	} // + leveraging fact that 'mux' of type '*ServerMux' has method .ServeHTTP() similar to 'HandlerFunc' inside mux.Handle()
 
 	s := &server{
 		httpServer: srv,
@@ -41,13 +47,13 @@ func newServer(store store.Store, logger *log.Logger, port int, cancel context.C
 		logger:     logger,
 	}
 
-	mux.Handle("GET /", requestLogger(logger)(http.HandlerFunc(s.handlerIndex)))
-	mux.Handle("POST /api/login", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerLogin))))
-	mux.Handle("POST /api/shorten", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerShortenLink))))
-	mux.Handle("GET /api/stats", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerStats))))
-	mux.Handle("GET /api/urls", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerListURLs))))
-	mux.Handle("GET /{shortCode}", requestLogger(logger)(http.HandlerFunc(s.handlerRedirect)))
-	mux.Handle("POST /admin/shutdown", requestLogger(logger)(http.HandlerFunc(s.handlerShutdown)))
+	mux.Handle("GET /", http.HandlerFunc(s.handlerIndex))
+	mux.Handle("POST /api/login", s.authMiddleware(http.HandlerFunc(s.handlerLogin)))
+	mux.Handle("POST /api/shorten", s.authMiddleware(http.HandlerFunc(s.handlerShortenLink)))
+	mux.Handle("GET /api/stats", s.authMiddleware(http.HandlerFunc(s.handlerStats)))
+	mux.Handle("GET /api/urls", s.authMiddleware(http.HandlerFunc(s.handlerListURLs)))
+	mux.Handle("GET /{shortCode}", http.HandlerFunc(s.handlerRedirect))
+	mux.Handle("POST /admin/shutdown", http.HandlerFunc(s.handlerShutdown))
 
 	return s
 }
