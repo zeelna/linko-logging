@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -13,36 +14,40 @@ import (
 )
 
 type server struct {
-	httpServer     *http.Server
-	store          store.Store
-	cancel         context.CancelFunc
-	accessLogger   *log.Logger
-	standardLogger *log.Logger
+	httpServer *http.Server
+	store      store.Store
+	cancel     context.CancelFunc
+	logger     *log.Logger
 }
 
-func newServer(store store.Store, accessLogger *log.Logger, standardLogger *log.Logger, port int, cancel context.CancelFunc) *server {
+func newServer(store store.Store, logger *log.Logger, port int, cancel context.CancelFunc) *server {
 	mux := http.NewServeMux()
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
 		Handler: mux,
 	}
+	/* // Next step is to try to avoid duplicate logging-middleware calls for each http endpoint request handler methods
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: requestLogger(logger)(mux),
+	}
+	*/ // mux has serveHTTP method
 
 	s := &server{
-		httpServer:     srv,
-		store:          store,
-		cancel:         cancel,
-		accessLogger:   accessLogger,
-		standardLogger: standardLogger,
+		httpServer: srv,
+		store:      store,
+		cancel:     cancel,
+		logger:     logger,
 	}
 
-	mux.Handle("GET /", requestLogger(accessLogger)(http.HandlerFunc(s.handlerIndex)))
-	mux.Handle("POST /api/login", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerLogin))))
-	mux.Handle("POST /api/shorten", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerShortenLink))))
-	mux.Handle("GET /api/stats", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerStats))))
-	mux.Handle("GET /api/urls", requestLogger(accessLogger)(s.authMiddleware(http.HandlerFunc(s.handlerListURLs))))
-	mux.Handle("GET /{shortCode}", requestLogger(accessLogger)(http.HandlerFunc(s.handlerRedirect)))
-	mux.Handle("POST /admin/shutdown", requestLogger(accessLogger)(http.HandlerFunc(s.handlerShutdown)))
+	mux.Handle("GET /", requestLogger(logger)(http.HandlerFunc(s.handlerIndex)))
+	mux.Handle("POST /api/login", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerLogin))))
+	mux.Handle("POST /api/shorten", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerShortenLink))))
+	mux.Handle("GET /api/stats", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerStats))))
+	mux.Handle("GET /api/urls", requestLogger(logger)(s.authMiddleware(http.HandlerFunc(s.handlerListURLs))))
+	mux.Handle("GET /{shortCode}", requestLogger(logger)(http.HandlerFunc(s.handlerRedirect)))
+	mux.Handle("POST /admin/shutdown", requestLogger(logger)(http.HandlerFunc(s.handlerShutdown)))
 
 	return s
 }
@@ -52,22 +57,23 @@ func (s *server) start() error {
 	if err != nil {
 		return err
 	}
+
+	// Log message:
+	//  calling the method 'Addr', then asserting its results to typeof *net.TCPAddr
+	tcpAddr := ln.Addr().(*net.TCPAddr)
+	port := tcpAddr.Port
+	s.logger.Printf("Linko is running on http://localhost:%d", port)
+
+	// Blocking call, 'ln' listener accepts HTTP requests. Therefore custom logger must reside above this next codeline:
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-
-	// Log message:
-	//  calling the methid 'Addr', then asserting its results to typeof *net.TCPAddr
-	tcpAddr := ln.Addr().(*net.TCPAddr)
-	port := tcpAddr.Port
-	s.standardLogger.Printf("Linko is running on http://localhost:%d", port)
-
 	return nil
 }
 
 func (s *server) shutdown(ctx context.Context) error {
 	// Log message:
-	s.standardLogger.Println("Linko is shutting down")
+	s.logger.Println("Linko is shutting down")
 
 	return s.httpServer.Shutdown(ctx)
 }
@@ -90,3 +96,35 @@ func requestLogger(logger *log.Logger) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// Helper to set the destination(s) of the all log entries based on whether 'LINKO_LOG_FILE' environment variable is set.
+func initializeLogger() *log.Logger {
+	// Assume that in production, Linko has a LINKO_LOG_FILE environment variable set.
+	// In local development and staging, it is not set.
+	logFileEnv := os.Getenv("LINKO_LOG_FILE")
+
+	// If LINKO_LOG_FILE environment variable is not set, the logger only write to STDERR.
+	if logFileEnv == "" {
+		logger := log.New(os.Stderr, "", log.LstdFlags)
+		return logger
+	}
+	// Otherwise if LINKO_LOG_FILE is set, it should write both to file and STDERR.
+	file, err := os.OpenFile(logFileEnv, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		log.Fatalf("failed to open log file: %v", err)
+	}
+	// You’re closing the file before the logger writes to it. Therefore, comment out this section.
+	//So MultiWriter is holding a closed file handle. That’s why stderr works, but the file stays empty.
+	// if err := file.Close(); err != nil {
+	// 	log.Fatalf("failed to close log file: %v", err)
+	// }
+	multiWriter := io.MultiWriter(os.Stderr, file)
+	logger := log.New(multiWriter, "", log.LstdFlags)
+	return logger
+}
+
+// Compile to Go code (go build -o myprogram)
+// go build .
+
+// Set the environment variable by using this command in your shell (and run the Go compiled code):
+// LINKO_LOG_FILE=linko.access.log go run .
