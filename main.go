@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,23 +29,16 @@ func main() {
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
 	// Creating non-global loggers
-	// #1 Standard Logger (example: INFO: <timestamp> Linko is shutting down.)
-	standardLogger := log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
-	accessLogFileHandler, err := os.OpenFile("linko.access.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
-	if err != nil {
-		standardLogger.Printf("failed to create access logger: %v", err)
-		return 1
-	}
-	// #2 Access Logger (example: DEBUG: <timestamp> GET / )
-	accessLogger := log.New(accessLogFileHandler, "INFO: ", log.LstdFlags)
+	// #1 Initialize my custom Logger (example: <timestamp> Linko is shutting down.)
+	logger := initializeLogger()
 
 	// Running the server.
-	st, err := store.New(dataDir, standardLogger)
+	st, err := store.New(dataDir, logger)
 	if err != nil {
-		standardLogger.Printf("failed to create store: %v", err)
+		logger.Printf("failed to create store: %v", err)
 		return 1
 	}
-	s := newServer(*st, accessLogger, standardLogger, httpPort, cancel)
+	s := newServer(*st, logger, httpPort, cancel)
 	var serverErr error
 	go func() {
 		serverErr = s.start()
@@ -57,11 +49,11 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	defer cancel()
 
 	if err := s.shutdown(shutdownCtx); err != nil {
-		standardLogger.Printf("failed to shutdown server: %v", err)
+		logger.Printf("failed to shutdown server: %v", err)
 		return 1
 	}
 	if serverErr != nil {
-		standardLogger.Printf("server error: %v", serverErr)
+		logger.Printf("server error: %v", serverErr)
 		return 1
 	}
 	return 0
