@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -103,30 +104,58 @@ func requestLogger(logger *log.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// Buffered Writer must be flushed before the program exits.
+type closeFunc func() error
+
 // Helper to set the destination(s) of the all log entries based on whether 'LINKO_LOG_FILE' environment variable is set.
-func initializeLogger() *log.Logger {
+func initializeLogger(logFileEnv string) (*log.Logger, closeFunc, error) {
 	// Assume that in production, Linko has a LINKO_LOG_FILE environment variable set.
 	// In local development and staging, it is not set.
-	logFileEnv := os.Getenv("LINKO_LOG_FILE")
+	// logFile := os.Getenv("LINKO_LOG_FILE")
 
 	// If LINKO_LOG_FILE environment variable is not set, the logger only write to STDERR.
 	if logFileEnv == "" {
 		logger := log.New(os.Stderr, "", log.LstdFlags)
-		return logger
+		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
+		var closeFn closeFunc = func() error { return nil }
+		return logger, closeFn, nil
 	}
 	// Otherwise if LINKO_LOG_FILE is set, it should write both to file and STDERR.
 	file, err := os.OpenFile(logFileEnv, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
-		log.Fatalf("failed to open log file: %v", err)
+		return nil, nil, err
 	}
 	// You’re closing the file before the logger writes to it. Therefore, comment out this section.
 	//So MultiWriter is holding a closed file handle. That’s why stderr works, but the file stays empty.
-	// if err := file.Close(); err != nil {
-	// 	log.Fatalf("failed to close log file: %v", err)
-	// }
-	multiWriter := io.MultiWriter(os.Stderr, file)
+	/*
+		if err := file.Close(); err != nil {
+		 	log.Fatalf("failed to close log file: %v", err)
+		}
+	*/
+
+	/* Logs are written to disk, no matter how large or small the message is.
+		- That's potentially a lot of disk I/O, and it can really slow down our entire application
+	 	+ use a buffered writer like bufio.Writer around the file.
+		// This allows us to write log messages to an in-memory buffer,
+		// and then that buffer is only written to disk when it's full.
+	*/
+	const bufferedBytes = 8192
+	bufferedFile := bufio.NewWriterSize(file, bufferedBytes) // buffered bytes, 8192
+	multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
 	logger := log.New(multiWriter, "", log.LstdFlags)
-	return logger
+
+	// Function expression to clear *bufio.Writer and close *File before program exits.
+	var closeFn closeFunc = func() error {
+		if err := bufferedFile.Flush(); err != nil {
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		// Happy path:
+		return nil
+	}
+	return logger, closeFn, nil
 }
 
 // Compile to Go code (go build -o myprogram)
