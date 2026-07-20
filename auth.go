@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	pkgerr "github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -34,9 +35,9 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 		}
 		ok, err := s.validatePassword(password, stored)
 		if err != nil {
-			s.logger.Info("error validating password for user",
+			s.logger.Error("error validating password",
 				slog.String("user", username),
-				slog.String("error", err.Error()),
+				slog.Any("error", err),
 			)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -56,6 +57,8 @@ func (s *server) validatePassword(password, stored string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
+		// LOGGING: Create error with Stack Trace. Logging delegated to outer fn (authMiddleware)
+		err := pkgerr.WithStack(err)
 		return false, err
 	}
 	return true, nil

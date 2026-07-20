@@ -42,16 +42,18 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	// IMPORTANT: wrapper that calls *bufio.Writer.Flush() and *File.Close() to clean up and handles its error.
 	defer func() { // // Must be wrapped in such an anonymous function to avoid losing the error variable.
 		if err := loggerCleanup(); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Failed to clean up logging resources: %v\n", err)
+			// _, _ = fmt.Fprintf(os.Stderr, "Failed to clean up logging resources: %v\n", err)
+			logger.Error("Failed to clean up logging resources", slog.Any("error", err))
 		} else {
-			_, _ = fmt.Fprintf(os.Stderr, "Successfully cleaned up logging resources\n")
+			// _, _ = fmt.Fprintf(os.Stderr, "Successfully cleaned up logging resources\n")
+			logger.Debug("Successfully cleaned up logging resources")
 		}
 	}() // if-else block allows avoiding contradicting print statements.
 
 	// Step 3: Running the server.
 	st, err := store.New(dataDir, logger)
 	if err != nil {
-		logger.Error("failed to create store", slog.String("error", err.Error()))
+		logger.Error("failed to create store", slog.Any("error", err))
 		return 1
 	}
 	s := newServer(*st, logger, httpPort, cancel)
@@ -65,11 +67,11 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	defer cancel()
 
 	if err := s.shutdown(shutdownCtx); err != nil {
-		logger.Error("failed to shutdown server", slog.String("error", err.Error()))
+		logger.Error("failed to shutdown server", slog.Any("error", err))
 		return 1
 	}
 	if serverErr != nil {
-		logger.Error("server error", slog.String("error", serverErr.Error()))
+		logger.Error("server error", slog.Any("error", serverErr))
 		return 1
 	}
 	return 0
