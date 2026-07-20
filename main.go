@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -28,11 +29,25 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	// Creating non-global loggers
-	// #1 Initialize my custom Logger (example: <timestamp> Linko is shutting down.)
-	logger := initializeLogger()
+	// Step 1: Creating non-global loggers
+	logFileEnv := os.Getenv("LINKO_LOG_FILE")                  // searching for environment variable value
+	logger, loggerCleanup, err := initializeLogger(logFileEnv) // new logger instance
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		return 1
+	} // Exit program, we require logs to be written, otherwise halt operations
 
-	// Running the server.
+	// Step 2: Invoking 'defer' to release the bufferedWriter and file-handle before program exits.
+	// IMPORTANT: wrapper that calls *bufio.Writer.Flush() and *File.Close() to clean up and handles its error.
+	defer func() { // // Must be wrapped in such an anonymous function to avoid losing the error variable.
+		if err := loggerCleanup(); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Failed to clean up logging resources: %v\n", err)
+		} else {
+			_, _ = fmt.Fprintf(os.Stderr, "Successfully cleaned up logging resources\n")
+		}
+	}() // if-else block allows avoiding contradicting print statements.
+
+	// Step 3: Running the server.
 	st, err := store.New(dataDir, logger)
 	if err != nil {
 		logger.Printf("failed to create store: %v", err)
