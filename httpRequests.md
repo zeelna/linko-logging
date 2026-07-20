@@ -30,3 +30,7 @@ user@PC:~/GolandProjects/linko-starter$ LINKO_LOG_FILE=linko.access.log go run .
 2026/07/20 11:58:51 Linko is shutting down
 ```
 
+#### 5) POST /api/login with basic authentication = saruman:invalidPassword (base64 encoded)
+curl -i -X POST \
+-u 'saruman:invalidFormat' \
+http://localhost:8899/api/login
