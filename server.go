@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"boot.dev/linko/internal/store"
+	pkgerr "github.com/pkg/errors"
 )
 
 type server struct {
@@ -112,15 +113,40 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-func _replaceAttr(groups []string, a slog.Attr) slog.Attr {
-	if a.Key == "error" {
-		err, ok := a.Value.Any().(error)
-		if !ok {
-			return a
-		}
-		return slog.String("error", fmt.Sprintf("%+v", err))
+// stackTracer interface to extract stack traces from errors wrapped with pkg/errors:
+type stackTracer interface {
+	error
+	StackTrace() pkgerr.StackTrace
+}
+
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if a.Key != "error" {
+		return a
 	}
-	return a
+	// 1) Resolve() tells slog to fully resolve the value first.
+	// 2) then Any() gives you the wrapped value.
+	// 3) then the type assertion to error works
+	err, ok := a.Value.Resolve().Any().(error)
+	if !ok {
+		return a
+	}
+	// 4) then errors.AsType[stackTracer](err) can find the stack-trace-carrying error
+	stackErr, ok := errors.AsType[stackTracer](err)
+	if !ok {
+		return a
+	}
+	// 5) then you return a grouped error object instead of one giant string
+	return slog.GroupAttrs(
+		"error",
+		slog.Attr{
+			Key:   "message",
+			Value: slog.StringValue(stackErr.Error()),
+		},
+		slog.Attr{
+			Key:   "stack_trace",
+			Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
+		},
+	)
 }
 
 // Buffered Writer must be flushed before the program exits.
@@ -139,7 +165,7 @@ func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 		// A. log.DEBUG. Create single logger with different destinations by level
 		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelDebug,
-			ReplaceAttr: _replaceAttr, // any logged error is accompanied by stack trace + error
+			ReplaceAttr: replaceAttr, // any logged error is accompanied by stack trace + error
 		}) // ^ Debug and above into os.Stderr ^
 		logger := slog.New(debugHandler)
 		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
@@ -162,12 +188,12 @@ func initializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 	bufferedFile := bufio.NewWriterSize(file, bufferedBytes) // buffered bytes, 8192
 	infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
 		Level:       slog.LevelInfo, // ^ Debug and above into FILE ^
-		ReplaceAttr: _replaceAttr,   // any logged error is accompanied by stack trace + error
+		ReplaceAttr: replaceAttr,    // any logged error is accompanied by stack trace + error
 	})
 	// A. log.Debug (into STDERR). Create single logger with different destinations by level
 	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level:       slog.LevelDebug, // ^ Debug and above into os.Stderr ^
-		ReplaceAttr: _replaceAttr,    // any logged error is accompanied by stack trace + error
+		ReplaceAttr: replaceAttr,     // any logged error is accompanied by stack trace + error
 	})
 	//  %%% %%% %%% %%% %%% %%% %%% %%% %%% %%%
 	logger := slog.New(slog.NewMultiHandler(
