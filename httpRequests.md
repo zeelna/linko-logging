@@ -34,3 +34,13 @@ user@PC:~/GolandProjects/linko-starter$ LINKO_LOG_FILE=linko.access.log go run .
 curl -i -X POST \
 -u 'saruman:invalidFormat' \
 http://localhost:8899/api/login
+
+#### 6) POST /api/login as frodo:
+curl -i -X POST http://localhost:8899/api/login \
+-H 'Content-Type: application/json' \
+-u 'frodo:ofTheNineFingers'
+
+#### 7) POST /api/shorten 
+curl -i -X POST "http://localhost:8899/api/shorten" \
+-u 'frodo:ofTheNineFingers' \
+-d "url=https://www.boot.dev/blog/golang"
