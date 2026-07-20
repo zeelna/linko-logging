@@ -30,17 +30,23 @@ user@PC:~/GolandProjects/linko-starter$ LINKO_LOG_FILE=linko.access.log go run .
 2026/07/20 11:58:51 Linko is shutting down
 ```
 
-#### 5) POST /api/login with basic authentication = saruman:invalidPassword (base64 encoded)
+### 5) POST /api/login with basic authentication = saruman:invalidPassword (base64 encoded)
+```bash
 curl -i -X POST \
 -u 'saruman:invalidFormat' \
 http://localhost:8899/api/login
+```
 
-#### 6) POST /api/login as frodo:
+### 6) POST /api/login as frodo:
+```bash
 curl -i -X POST http://localhost:8899/api/login \
 -H 'Content-Type: application/json' \
 -u 'frodo:ofTheNineFingers'
+```
 
-#### 7) POST /api/shorten 
+### 7) POST /api/shorten 
+```bash
 curl -i -X POST "http://localhost:8899/api/shorten" \
 -u 'frodo:ofTheNineFingers' \
 -d "url=https://www.boot.dev/blog/golang"
+```

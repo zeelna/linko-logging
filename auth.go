@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
+	pkgerr "github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -56,6 +58,9 @@ func (s *server) validatePassword(password, stored string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
+		// LOGGING: Create error with Stack Trace. Logging delegated to outer fn (authMiddleware)
+		cause := errors.New(err.Error())
+		err := pkgerr.WithStack(cause)
 		return false, err
 	}
 	return true, nil

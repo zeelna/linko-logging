@@ -42,9 +42,11 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	// IMPORTANT: wrapper that calls *bufio.Writer.Flush() and *File.Close() to clean up and handles its error.
 	defer func() { // // Must be wrapped in such an anonymous function to avoid losing the error variable.
 		if err := loggerCleanup(); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Failed to clean up logging resources: %v\n", err)
+			// _, _ = fmt.Fprintf(os.Stderr, "Failed to clean up logging resources: %v\n", err)
+			logger.Error("Failed to clean up logging resources", slog.Any("error", err))
 		} else {
-			_, _ = fmt.Fprintf(os.Stderr, "Successfully cleaned up logging resources\n")
+			// _, _ = fmt.Fprintf(os.Stderr, "Successfully cleaned up logging resources\n")
+			logger.Debug("Successfully cleaned up logging resources")
 		}
 	}() // if-else block allows avoiding contradicting print statements.
 
