@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,12 @@ import (
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// ----------------------------------------------------
+			// Include authenticated username in the request logs
+			logCtx := &LogContext{}
+			r = r.WithContext(context.WithValue(r.Context(), LogContextKey, logCtx))
+			// ---------------------------------------------------
+
 			// Request Metadata logging:
 			spyReader := &spyReadCloser{ReadCloser: r.Body}
 			r.Body = spyReader
@@ -28,16 +35,22 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			// Record request start time, then subtract when the response finishes.
 			start := time.Now() // starting clock
 			next.ServeHTTP(spyWriter, r)
-			logger.Info(
-				"Served request",
+			//  --- Logging HTTP Response and Request attributes ---
+			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.String("client_ip", r.RemoteAddr),
 				slog.Duration("duration", time.Since(start)), // time.Since() calculates the duration
+				//slog.String("user", logCtx.Username),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
 				slog.Int("response_body_bytes", spyWriter.bytesWritten),
-			)
+			}
+			if logCtx.Username != "" {
+				attrs = append(attrs, slog.String("user", logCtx.Username)) // populated by authMiddleware
+			}
+			logger.Info("Served request", attrs...)
+			// --------------------------------------------------
 		})
 	}
 }
@@ -81,6 +94,16 @@ func (w *spyResponseWriter) WriteHeader(statusCode int) {
 }
 
 // ---------------------------
+// Logging user Context
+type contextKey string
+
+const LogContextKey contextKey = "log_context"
+
+type LogContext struct {
+	Username string
+}
+
+// -------------------------
 
 // Buffered Writer must be flushed before the program exits.
 type CloseFunc func() error

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	pkgerr "github.com/pkg/errors"
+	"github.com/zeelna/linko-logging/internal/logger"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -47,6 +49,20 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), UserContextKey, username))
+
+		// read the *LogContext that requestLogger stored:
+		logContextVal := r.Context().Value(logger.LogContextKey)
+		logContext, ok := logContextVal.(*logger.LogContext)
+		if !ok || logContext == nil {
+			s.logger.Error("no logContext for auth middleware",
+				slog.String("path", r.URL.Path),
+				slog.Any("value_type", fmt.Sprintf("%T", logContextVal)),
+			)
+
+			next.ServeHTTP(w, r)
+			return
+		}
+		logContext.Username = username
 		next.ServeHTTP(w, r)
 	})
 }
