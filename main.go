@@ -28,6 +28,10 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
+	// Set Runtime Environment:
+	env := os.Getenv("ENV")      // Runtime environment name (e.g. production, staging, development)
+	hostname, _ := os.Hostname() // Server hostname/domain (e.g. jons-macbook (local), c7a9d8b32c4a (container), or ip-172-31-22-45 (cloud server))
+
 	// Step 0: Creating non-global loggers
 	logFileEnv := os.Getenv("LINKO_LOG_FILE")                           // searching for environment variable value
 	myLogger, loggerCleanup, err := logger.InitializeLogger(logFileEnv) // new logger instance
@@ -40,8 +44,9 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	myLogger = myLogger.With(
 		slog.String("git_sha", build.GitSHA),
 		slog.String("build_time", build.BuildTime),
+		slog.String("env", env),
+		slog.String("hostname", hostname),
 	)
-
 	// Step 2: Invoking 'defer' to release the bufferedWriter and file-handle before program exits.
 	// IMPORTANT: wrapper that calls *bufio.Writer.Flush() and *File.Close() to clean up and handles its error.
 	defer func() { // // Must be wrapped in such an anonymous function to avoid losing the error variable.
@@ -93,4 +98,12 @@ go build \
 //  #2 Run the prebuilt app with the log file path set:
 LINKO_LOG_FILE=linko.access.log ./linko
 */
+
+/* // Build and run in 'dev'
+go build \
+  -ldflags "-X github.com/zeelna/linko-logging/internal/build.GitSHA=$(git rev-parse HEAD) -X github.com/zeelna/linko-logging/internal/build.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  -o linko &&
+LINKO_LOG_FILE=linko.access.log ENV=development ./linko
+*/
+
 // -----------------------------------------------------

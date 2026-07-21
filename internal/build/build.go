@@ -19,3 +19,10 @@ go build \
 //  #2 Run the prebuilt app with the log file path set:
 LINKO_LOG_FILE=linko.access.log ./linko
 */
+// ----------------------------------------------------
+/* // Build and run in 'dev'
+go build \
+  -ldflags "-X github.com/zeelna/linko-logging/internal/build.GitSHA=$(git rev-parse HEAD) -X github.com/zeelna/linko-logging/internal/build.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  -o linko &&
+LINKO_LOG_FILE=linko.access.log ENV=development ./linko
+*/
