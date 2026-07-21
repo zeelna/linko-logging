@@ -97,3 +97,9 @@ curl -u frodo:ofTheNineFingers \
 -d "url=not-a-valid-url" \
 http://localhost:8899/api/shorten
 ```
+
+### 12) POST /api/login with 127.0.0.1:8899 to verify redactIP() works.
+```bash
+curl -i -X POST http://127.0.0.1:8899/api/login \
+-u frodo:ofTheNineFingers
+```
