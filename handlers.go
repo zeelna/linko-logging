@@ -40,19 +40,20 @@ func (s *server) handlerLogin(w http.ResponseWriter, r *http.Request) {
 func (s *server) handlerShortenLink(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(string)
 	if !ok || user == "" {
-		logger.HttpError(r.Context(), w, http.StatusUnauthorized, fmt.Errorf("unauthorized"))
+		logger.HttpError(r.Context(), w, http.StatusUnauthorized, errors.New("unauthorized"))
 		return
 	}
 	longURL := r.FormValue("url")
 	if longURL == "" {
 		//http.Error(w, "missing url parameter", http.StatusBadRequest)
-		logger.HttpError(r.Context(), w, http.StatusBadRequest, fmt.Errorf("missing url parameter"))
+		logger.HttpError(r.Context(), w, http.StatusBadRequest, errors.New("missing url parameter"))
 		return
 	}
 	u, err := url.Parse(longURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		clean := errors.New("invalid url, must include scheme (http/https) and host")
-		logged := linkoerr.WithAttrs(clean, "url", longURL) // detail kept as a field
+		clean := errors.New("invalid URL")
+		reason := "url must include scheme (http/https) and host"
+		logged := linkoerr.WithAttrs(clean, "url", longURL, "reason", reason) // detail kept as a field
 		logger.HttpError(r.Context(), w, http.StatusBadRequest, logged)
 		return
 	}
@@ -87,7 +88,7 @@ func (s *server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			//http.Error(w, "not found", http.StatusNotFound)
-			logger.HttpError(r.Context(), w, http.StatusNotFound, fmt.Errorf("not found"))
+			logger.HttpError(r.Context(), w, http.StatusNotFound, errors.New("not found"))
 		} else {
 			// Structured log.
 			s.logger.Error("failed to lookup URL",
