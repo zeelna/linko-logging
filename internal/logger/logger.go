@@ -3,6 +3,7 @@ package logger
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,23 @@ import (
 	pkgerr "github.com/pkg/errors"
 	"github.com/zeelna/linko-logging/internal/linkoerr"
 )
+
+// Middleware to read / generate X-Request-ID from inbound request before logger.RequestLogger() call
+func RequestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if there is 'X-Request-ID' in the HTTP Request Header.
+		requestID := r.Header.Get("X-Request-ID")
+		// If not, create a cryptographically random string, and assign it
+		if requestID == "" {
+			requestID = rand.Text()
+			r.Header.Set("X-Request-ID", requestID)
+		}
+		// Assign this requestID in the Response (HTTP) Header.
+		w.Header().Set("X-Request-ID", requestID) // Downstream Logger will read from this .Get()
+		next.ServeHTTP(w, r)
+	}) // Propagate request IDs through headers and logs through HTTP Headers (response).
+} // Update your server-wide handler to use the new middleware. It should be called before the request logger middleware
+// see: srv := &http.Server{ ..., Handler: logger.RequestIDMiddleware(logger.RequestLogger(myLogger)(mux)), }
 
 // Middleware to log with Dependency Injected logger, stored in s.standardLogger
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
@@ -39,6 +57,7 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
+				slog.String("request_id", spyWriter.Header().Get("X-Request-ID")),
 				slog.String("client_ip", r.RemoteAddr),
 				slog.Duration("duration", time.Since(start)), // time.Since() calculates the duration
 				//slog.String("user", logCtx.Username),

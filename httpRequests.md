@@ -76,3 +76,17 @@ curl -i -X POST \
 http://localhost:8899/api/login
 ```
 
+
+### 10) GET / with 'X-Request-ID: bootdev-test-id' with both Request Headers (> lines) and Response Headers (< lines)
+```bash
+curl -sS -D -v -o /dev/null \
+  -H 'X-Request-ID: bootdev-test-id' \
+  http://localhost:8899/
+```
+
+### 10) GET / with 'X-Request-ID: bootdev-test-id' 
+```bash
+curl -sS -v -D - -o /dev/null \
+  -H 'X-Request-ID: bootdev-test-id' \
+  http://localhost:8899/
+```
