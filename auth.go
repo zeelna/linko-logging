@@ -27,12 +27,12 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
 		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			logger.HttpError(r.Context(), w, http.StatusUnauthorized, fmt.Errorf("unauthorized"))
 			return
 		}
 		stored, exists := allowedUsers[username]
 		if !exists {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			logger.HttpError(r.Context(), w, http.StatusUnauthorized, fmt.Errorf("unauthorized"))
 			return
 		}
 		ok, err := s.validatePassword(password, stored)
@@ -41,28 +41,23 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 				slog.String("user", username),
 				slog.Any("error", err),
 			)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+
+
+			logger.HttpError(r.Context(), w, http.StatusInternalServerError,
+				fmt.Errorf("internal server error"))
 			return
 		}
 		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			logger.HttpError(r.Context(), w, http.StatusUnauthorized, fmt.Errorf("unauthorized"))
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), UserContextKey, username))
 
-		// read the *LogContext that requestLogger stored:
-		logContextVal := r.Context().Value(logger.LogContextKey)
-		logContext, ok := logContextVal.(*logger.LogContext)
-		if !ok || logContext == nil {
-			s.logger.Error("no logContext for auth middleware",
-				slog.String("path", r.URL.Path),
-				slog.Any("value_type", fmt.Sprintf("%T", logContextVal)),
-			)
-
-			next.ServeHTTP(w, r)
-			return
+		// Get the *LogContext object via LogContextKey. (Should not be creating anything new, a 'getter' instead)
+		logContext, _ := r.Context().Value(logger.LogContextKey).(*logger.LogContext)
+		if logContext != nil {
+			logContext.Username = username
 		}
-		logContext.Username = username
 		next.ServeHTTP(w, r)
 	})
 }
