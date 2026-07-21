@@ -10,7 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"boot.dev/linko/internal/store"
+	"github.com/zeelna/linko-starter/internal/logger"
+	"github.com/zeelna/linko-starter/internal/store"
 )
 
 // DONE: Removed old logger and used Dependecy Injection
@@ -31,8 +32,8 @@ func main() {
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
 	// Step 1: Creating non-global loggers
-	logFileEnv := os.Getenv("LINKO_LOG_FILE")                  // searching for environment variable value
-	logger, loggerCleanup, err := initializeLogger(logFileEnv) // new logger instance
+	logFileEnv := os.Getenv("LINKO_LOG_FILE")                           // searching for environment variable value
+	myLogger, loggerCleanup, err := logger.InitializeLogger(logFileEnv) // new logger instance
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
@@ -43,20 +44,20 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	defer func() { // // Must be wrapped in such an anonymous function to avoid losing the error variable.
 		if err := loggerCleanup(); err != nil {
 			// _, _ = fmt.Fprintf(os.Stderr, "Failed to clean up logging resources: %v\n", err)
-			logger.Error("Failed to clean up logging resources", slog.Any("error", err))
+			myLogger.Error("Failed to clean up logging resources", slog.Any("error", err))
 		} else {
 			// _, _ = fmt.Fprintf(os.Stderr, "Successfully cleaned up logging resources\n")
-			logger.Debug("Successfully cleaned up logging resources")
+			myLogger.Debug("Successfully cleaned up logging resources")
 		}
 	}() // if-else block allows avoiding contradicting print statements.
 
 	// Step 3: Running the server.
-	st, err := store.New(dataDir, logger)
+	st, err := store.New(dataDir, myLogger)
 	if err != nil {
-		logger.Error("failed to create store", slog.Any("error", err))
+		myLogger.Error("failed to create store", slog.Any("error", err))
 		return 1
 	}
-	s := newServer(*st, logger, httpPort, cancel)
+	s := newServer(*st, myLogger, httpPort, cancel)
 	var serverErr error
 	go func() {
 		serverErr = s.start()
@@ -67,11 +68,11 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	defer cancel()
 
 	if err := s.shutdown(shutdownCtx); err != nil {
-		logger.Error("failed to shutdown server", slog.Any("error", err))
+		myLogger.Error("failed to shutdown server", slog.Any("error", err))
 		return 1
 	}
 	if serverErr != nil {
-		logger.Error("server error", slog.Any("error", serverErr))
+		myLogger.Error("server error", slog.Any("error", serverErr))
 		return 1
 	}
 	return 0
