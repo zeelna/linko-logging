@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/zeelna/linko-starter/internal/linkoerr"
 )
 
 type ShortURL struct {
@@ -93,7 +94,10 @@ func (s *Store) walk(ctx context.Context, ch chan<- ShortURL) {
 		if !e.IsDir() {
 			long, err := s.Lookup(ctx, e.Name())
 			if err != nil {
-				ch <- ShortURL{Err: fmt.Errorf("read %s: %w", filepath.Join(s.dir, e.Name()), err)}
+				// old: craft an error-literal with information inside the literal)
+				//ch <- ShortURL{Err: fmt.Errorf("read %s: %w", filepath.Join(s.dir, e.Name()), err)}
+				// instead: leverage ('internal/linkoerr') package to add error (in-depth, nested) attributes
+				ch <- ShortURL{Err: linkoerr.WithAttrs(err, "path", filepath.Join(s.dir, e.Name()))}
 				continue
 			}
 			ch <- ShortURL{ShortCode: e.Name(), LongURL: long}
@@ -110,7 +114,8 @@ func (s *Store) Lookup(_ context.Context, short string) (string, error) {
 	}
 	if err != nil {
 		// s.logger.Error(fmt.Sprintf("failed to read %s: %v", shortcodeFilepath, err))
-		return "", fmt.Errorf("read %s: %w", shortcodeFilepath, err)
+		//return "", fmt.Errorf("read %s: %w", shortcodeFilepath, err)
+		return "", err // instead: returning raw error with the introduction of 'errors.go'
 	}
 	return string(data), nil
 }

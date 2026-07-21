@@ -9,6 +9,7 @@ import (
 	"os"
 
 	pkgerr "github.com/pkg/errors"
+	"github.com/zeelna/linko-starter/internal/linkoerr"
 )
 
 // Middleware to log with Dependency Injected logger, stored in s.standardLogger
@@ -32,34 +33,50 @@ type stackTracer interface {
 	StackTrace() pkgerr.StackTrace
 }
 
+// replaceAttr rewrites the "error" slog.Attr into a structured group.
+//
+// Steps:
+//  1. Resolve() forces slog to fully evaluate the value, and Any() unwraps it
+//     so the type assertion to `error` succeeds.
+//  2. Build attrs starting with "message" (the error's own text).
+//  3. linkoerr.Attrs(err) walks the error chain and returns any structured
+//     fields attached via linkoerr.WithAttrs (e.g. "path", "item_no") - these
+//     are spread with `...` so each becomes its own field in the group,
+//     instead of being nested as a single slice value.
+//     (example: store.go's walk() -> linkoerr.WithAttrs(err, "path", ...))
+//  4. If the error chain also carries a stack trace (from pkg/errors), append
+//     a "stack_trace" field too - this is optional and only added when present.
+//  5. GroupAttrs bundles everything into a single "error" group instead of one
+//     giant string, so message/attrs/stack_trace are each queryable fields.
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	if a.Key != "error" {
 		return a
 	}
-	// 1) Resolve() tells slog to fully resolve the value first.
-	// 2) then Any() gives you the wrapped value.
-	// 3) then the type assertion to error works
-	err, ok := a.Value.Resolve().Any().(error)
+	// 1) Resolve() tells slog to fully resolve the value first. 2) then Any() gives you the wrapped value.
+	err, ok := a.Value.Resolve().Any().(error) //  3) then the type assertion to error works
 	if !ok {
 		return a
 	}
-	// 4) then errors.AsType[stackTracer](err) can find the stack-trace-carrying error
-	stackErr, ok := errors.AsType[stackTracer](err)
-	if !ok {
-		return a
+	// declares a new slice named attrs that holds slog.Attr value (later more than this single value)
+	attrs := []slog.Attr{
+		{Key: "message", Value: slog.StringValue(err.Error())},
 	}
-	// 5) then you return a grouped error object instead of one giant string
-	return slog.GroupAttrs(
-		"error",
-		slog.Attr{
-			Key:   "message",
-			Value: slog.StringValue(stackErr.Error()),
-		},
-		slog.Attr{
+	// ... "spreads" slice, so each element is passed as an individual argument to append
+	attrs = append(attrs, linkoerr.Attrs(err)...)
+	// linkoerr.Attrs(err) calls your helper function, which walks the error chain and
+	// returns a []slog.Attr - all the extra structured fields (like "path", "item_no", etc.)
+	//  that were attached anywhere in the chain via WithAttrs
+	// 	(example in 'store.go' walk():  ch <- ShortURL{Err: linkoerr.WithAttrs(err, "path", filepath.Join(s.dir, e.Name()))}
+
+	// else-case: stack-trace was successfully created, then add it.
+	if stackErr, ok := errors.AsType[stackTracer](err); ok {
+		attrs = append(attrs, slog.Attr{
 			Key:   "stack_trace",
 			Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
-		},
-	)
+		})
+	}
+	// each element from slice 'attrs' is added individually by using 'attrs...'
+	return slog.GroupAttrs("error", attrs...)
 }
 
 // Buffered Writer must be flushed before the program exits.
