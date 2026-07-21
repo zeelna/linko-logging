@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
+	"github.com/natefinch/lumberjack"
 	pkgerr "github.com/pkg/errors"
 	"github.com/zeelna/linko-logging/internal/linkoerr"
 )
@@ -141,21 +141,19 @@ type CloseFunc func() error
 
 // Helper to set the destination(s) of the all log entries based on whether 'LINKO_LOG_FILE' environment variable is set.
 func InitializeLogger(logFileEnv string) (*slog.Logger, CloseFunc, error) {
-
-	/* // A more practical approach is a single logger that routes logs to different destinations by level.
-	//For example, everything goes to STDERR, but only INFO and higher go to a file.
-	// As of Go 1.26, this is easy with slog.NewMultiHandler:
+	//func InitializeLogger(logFileEnv string) (*lumberjack.Logger, CloseFunc, error) {
+	/*
+		// A more practical approach is a single logger that routes logs to different destinations by level.
+		//For example, everything goes to STDERR, but only INFO and higher go to a file.
+		// Assume that in production, Linko has a LINKO_LOG_FILE environment variable set.
+		// If LINKO_LOG_FILE environment variable is not set, the logger only write to STDERR.
 	*/
-	// Assume that in production, Linko has a LINKO_LOG_FILE environment variable set.
-	// If LINKO_LOG_FILE environment variable is not set, the logger only write to STDERR.
 	if logFileEnv == "" {
 		// A. log.DEBUG. Create single logger with different destinations by level^
 		isTerminal := isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
 		debugHandler := tint.NewTextHandler(os.Stderr, &tint.Options{
-			//NoColor: true,
-			NoColor: !isTerminal,
+			NoColor: !isTerminal, // deliberate ! (negation)
 		})
-
 		logger := slog.New(debugHandler)
 		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
 		var closeFn CloseFunc = func() error { return nil }
@@ -163,53 +161,58 @@ func InitializeLogger(logFileEnv string) (*slog.Logger, CloseFunc, error) {
 	}
 	// Otherwise if LINKO_LOG_FILE is set, it should write both to file and STDERR.
 	//  %%% %%% %%% B. log.Info (into file).  %%% %%% %%%
-	file, err := os.OpenFile(logFileEnv, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, nil, err
-	}
+	/*
+		file, err := os.OpenFile(logFileEnv, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err != nil {
+			return nil, nil, err
+		}
+	*/
 	/* Logs are written to disk, no matter how large or small the message is.
 		- That's potentially a lot of disk I/O, and it can really slow down our entire application
 	 	+ use a buffered writer like bufio.Writer around the file.
 		// This allows us to write log messages to an in-memory buffer,
 		// and then that buffer is only written to disk when it's full.
 	*/
-	const bufferedBytes = 8192
-	bufferedFile := bufio.NewWriterSize(file, bufferedBytes) // buffered bytes, 8192
-	infoHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
+	logWriter := &lumberjack.Logger{
+		Filename:   logFileEnv,
+		MaxSize:    1,
+		MaxAge:     28,
+		MaxBackups: 10,
+		LocalTime:  false,
+		Compress:   true,
+	}
+	//const bufferedBytes = 8192
+	//bufferedFileWriter := bufio.NewWriterSize(file, 8192) // buffered bytes, 8192
+	//infoHandler := slog.NewJSONHandler(bufferedFileWriter, &slog.HandlerOptions{
+
+	infoHandler := slog.NewJSONHandler(logWriter, &slog.HandlerOptions{
 		Level:       slog.LevelInfo, // ^ Debug and above into FILE ^
 		ReplaceAttr: replaceAttr,    // any logged error is accompanied by stack trace + error
 	})
-	/* // option 1: un-tinted console.based logs (slog.NewTextHandler)
-	// A. log.Debug (into STDERR). Create single logger with different destinations by level
-	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:       slog.LevelDebug, // ^ Debug and above into os.Stderr ^
-		ReplaceAttr: replaceAttr,     // any logged error is accompanied by stack trace + error
-	})
-	*/ // option 2: tinted console.based logs (tint.NewTextHandler)
-	isTerminal := isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+	_isTerminal := isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
 	debugHandler := tint.NewTextHandler(os.Stderr, &tint.Options{
-		NoColor: !isTerminal,
+		Level:   slog.LevelDebug,
+		NoColor: !_isTerminal, // negation purposefully.
 	})
 
-	//  %%% %%% %%% %%% %%% %%% %%% %%% %%% %%%
-	logger := slog.New(slog.NewMultiHandler(
-		debugHandler, // DEBUG and above: into os.Stderr
-		infoHandler,  // INFO and above: into bufferedFile (linko.access.log)
-
-	))
+	myLogger := slog.New(slog.NewMultiHandler(
+		debugHandler,
+		infoHandler,
+	)) // DEBUG and above: into os.Stderr, // INFO and above: into bufferedFile (linko.access.log)
 
 	// ----- Safe cleanup (fn-expression) to free resources before program exits ------------
 	// Function expression to clear *bufio.Writer and close *File before program exits.
-	var closeFn CloseFunc = func() error {
-		if err := bufferedFile.Flush(); err != nil {
-			return err
+	/*
+		var closeFn CloseFunc = func() error {
+			if err := bufferedFileWriter.Flush(); err != nil { return err }
+			if err := file.Close(); err != nil { return err }
+			return nil //  <- Happy path of function expression named closeFn
 		}
-		if err := file.Close(); err != nil {
-			return err
-		}
-		return nil //  <- Happy path of function expression named closeFn
-	}
-	return logger, closeFn, nil
+		return logger, closeFn, nil
+	*/
+	// -------------------------------------------------------------------------------------
+	closeFn := func() error { return logWriter.Close() } // lumberjack.logger's .Close() function.
+	return myLogger, closeFn, nil
 }
 
 // ###################################################################################################################
