@@ -37,7 +37,7 @@ func newServer(store store.Store, myLogger *slog.Logger, port int, cancel contex
 	// Pros: avoid duplicate logging-middleware calls for each http endpoint request handler methods
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: logger.RequestLogger(myLogger)(mux),
+		Handler: logger.RequestIDMiddleware(logger.RequestLogger(myLogger)(mux)),
 	} // + leveraging fact that 'mux' of type '*ServerMux' has method .ServeHTTP() similar to 'HandlerFunc' inside mux.Handle()
 
 	s := &server{
