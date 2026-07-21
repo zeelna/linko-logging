@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/lmittmann/tint"
@@ -235,7 +237,7 @@ type multiError interface {
 	Unwrap() []error
 }
 
-// replaceAttr rewrites the "error" slog.Attr into a structured group.
+// replaceAttr rewrites the "error" slog.Attr into a structured group. Non-errors are filtered against sensitiveKeys
 //
 // Steps:
 //  1. Resolve() forces slog to fully evaluate the value, and Any() unwraps it
@@ -251,13 +253,20 @@ type multiError interface {
 //  5. GroupAttrs bundles everything into a single "error" group instead of one
 //     giant string, so message/attrs/stack_trace are each queryable fields.
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	// Step 0: Redact sensitive keys!
+	a = redactSensitiveKey(a)
+	// Step 1: Redact password credentials embedded in URL
+	a = redactURLPassword(a)
+	// Step 2: Check if is error. Up until here, all non-errors are redacted and safe to exit
 	if a.Key != "error" {
 		return a
 	}
+	// Step 3: Try type-convert into type of (error). Exit if fails
 	err, ok := a.Value.Resolve().Any().(error)
 	if !ok {
 		return a
 	}
+	// Step 4: Happy path - include multiError (and singleError) all attributes in structured way: error_1.msg, error_1.path, error_2.msg, error_2.path, etc
 	// Unveil whether multiple errors or a single err
 	multiErr, ok := errors.AsType[multiError](err)
 	// single-error case:
@@ -312,4 +321,29 @@ func redactIP(address string) string {
 	}
 	// We are excluding the port number if the IPv4 address was correct.
 	return fmt.Sprintf("%d.%d.%d.%s", ip4[0], ip4[1], ip4[2], "x") // change 192.168.1.4 to 192.168.1.x
+}
+
+// helper function to redact sensitive keys
+func redactSensitiveKey(a slog.Attr) slog.Attr {
+	var sensitiveKeys = []string{"password", "key", "apikey", "secret", "pin", "creditcardno", "user"}
+	if slices.Contains(sensitiveKeys, a.Key) {
+		return slog.String(a.Key, "[REDACTED]")
+	}
+	return a
+}
+
+// helper function redact embedded sensitive password
+func redactURLPassword(a slog.Attr) slog.Attr {
+	parsedURL, err := url.Parse(a.Value.Resolve().String())
+	if err != nil {
+		return a
+	}
+	if parsedURL.User == nil {
+		return a
+	}
+	if _, hasPassword := parsedURL.User.Password(); !hasPassword {
+		return a
+	}
+	parsedURL.User = url.UserPassword(parsedURL.User.Username(), "[REDACTED]")
+	return slog.String(a.Key, parsedURL.String())
 }

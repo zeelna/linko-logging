@@ -77,6 +77,14 @@ http://localhost:8899/api/login
 ```
 
 
+### 11) POST /api/shorten -> To test URL-embedded password redaction. "url": "https://bugsBunny:wha1sUpD0c@www.boot.dev/blog/golang"
+```bash
+curl -i -X POST "http://localhost:8899/api/shorten" \
+-u 'frodo:ofTheNineFingers' \
+-d "url=https://bugsBunny:wha1sUpD0c@www.boot.dev/blog/golang"
+```
+
+
 ### 10) GET / with 'X-Request-ID: bootdev-test-id' with both Request Headers (> lines) and Response Headers (< lines)
 ```bash
 curl -sS -D -v -o /dev/null \
