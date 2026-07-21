@@ -12,6 +12,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
 	"github.com/zeelna/linko-logging/internal/linkoerr"
 )
@@ -147,11 +149,13 @@ func InitializeLogger(logFileEnv string) (*slog.Logger, CloseFunc, error) {
 	// Assume that in production, Linko has a LINKO_LOG_FILE environment variable set.
 	// If LINKO_LOG_FILE environment variable is not set, the logger only write to STDERR.
 	if logFileEnv == "" {
-		// A. log.DEBUG. Create single logger with different destinations by level
-		debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level:       slog.LevelDebug,
-			ReplaceAttr: replaceAttr, // any logged error is accompanied by stack trace + error
-		}) // ^ Debug and above into os.Stderr ^
+		// A. log.DEBUG. Create single logger with different destinations by level^
+		isTerminal := isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+		debugHandler := tint.NewTextHandler(os.Stderr, &tint.Options{
+			//NoColor: true,
+			NoColor: !isTerminal,
+		})
+
 		logger := slog.New(debugHandler)
 		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
 		var closeFn CloseFunc = func() error { return nil }
@@ -175,11 +179,18 @@ func InitializeLogger(logFileEnv string) (*slog.Logger, CloseFunc, error) {
 		Level:       slog.LevelInfo, // ^ Debug and above into FILE ^
 		ReplaceAttr: replaceAttr,    // any logged error is accompanied by stack trace + error
 	})
+	/* // option 1: un-tinted console.based logs (slog.NewTextHandler)
 	// A. log.Debug (into STDERR). Create single logger with different destinations by level
 	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level:       slog.LevelDebug, // ^ Debug and above into os.Stderr ^
 		ReplaceAttr: replaceAttr,     // any logged error is accompanied by stack trace + error
 	})
+	*/ // option 2: tinted console.based logs (tint.NewTextHandler)
+	isTerminal := isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd())
+	debugHandler := tint.NewTextHandler(os.Stderr, &tint.Options{
+		NoColor: !isTerminal,
+	})
+
 	//  %%% %%% %%% %%% %%% %%% %%% %%% %%% %%%
 	logger := slog.New(slog.NewMultiHandler(
 		debugHandler, // DEBUG and above: into os.Stderr
