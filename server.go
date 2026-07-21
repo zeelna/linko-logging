@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/zeelna/linko-starter/internal/logger"
-	"github.com/zeelna/linko-starter/internal/store"
+	"github.com/zeelna/linko-logging/internal/logger"
+	"github.com/zeelna/linko-logging/internal/store"
 )
 
 type server struct {

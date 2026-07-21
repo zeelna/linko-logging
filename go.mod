@@ -1,4 +1,4 @@
-module github.com/zeelna/linko-starter
+module github.com/zeelna/linko-logging
 
 go 1.26.4
 
