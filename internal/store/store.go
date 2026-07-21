@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zeelna/linko-starter/internal/linkoerr"
+	"github.com/zeelna/linko-logging/internal/linkoerr"
 )
 
 type ShortURL struct {

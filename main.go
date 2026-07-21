@@ -10,13 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zeelna/linko-starter/internal/logger"
-	"github.com/zeelna/linko-starter/internal/store"
+	"github.com/zeelna/linko-logging/internal/build"
+	"github.com/zeelna/linko-logging/internal/logger"
+	"github.com/zeelna/linko-logging/internal/store"
 )
-
-// DONE: Removed old logger and used Dependecy Injection
-// before: Global logger to send logs to os.Stderr. Useful to steer clear from clogging up the main output of the program
-//var logger = log.New(os.Stderr, "DEBUG: ", log.LstdFlags)
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -31,13 +28,19 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	// Step 1: Creating non-global loggers
+	// Step 0: Creating non-global loggers
 	logFileEnv := os.Getenv("LINKO_LOG_FILE")                           // searching for environment variable value
 	myLogger, loggerCleanup, err := logger.InitializeLogger(logFileEnv) // new logger instance
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
 	} // Exit program, we require logs to be written, otherwise halt operations
+
+	// Step 1: Immediately after initializing your logger, add these two fields to include Build Information
+	myLogger = myLogger.With(
+		slog.String("git_sha", build.GitSHA),
+		slog.String("build_time", build.BuildTime),
+	)
 
 	// Step 2: Invoking 'defer' to release the bufferedWriter and file-handle before program exits.
 	// IMPORTANT: wrapper that calls *bufio.Writer.Flush() and *File.Close() to clean up and handles its error.
@@ -77,3 +80,17 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	}
 	return 0
 }
+
+// -----------------------------------------------------
+// IMPORTANT: go run does not support -ldflags variable injection – the variables will remain "unknown" unless you use go build first.
+
+// Build and run with:
+/* // #1 Build your app using -ldflags to inject values at link time:
+go build \
+  -ldflags "-X github.com/zeelna/linko-logging/internal/build.GitSHA=$(git rev-parse HEAD) -X github.com/zeelna/linko-logging/internal/build.BuildTime=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  -o linko
+
+//  #2 Run the prebuilt app with the log file path set:
+LINKO_LOG_FILE=linko.access.log ./linko
+*/
+// -----------------------------------------------------

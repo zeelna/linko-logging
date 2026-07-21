@@ -9,7 +9,7 @@ import (
 	"os"
 
 	pkgerr "github.com/pkg/errors"
-	"github.com/zeelna/linko-starter/internal/linkoerr"
+	"github.com/zeelna/linko-logging/internal/linkoerr"
 )
 
 // Middleware to log with Dependency Injected logger, stored in s.standardLogger
