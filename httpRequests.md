@@ -56,3 +56,23 @@ curl -i -X POST "http://localhost:8899/api/shorten" \
 -u 'frodo:ofTheNineFingers' \
 -d "url=https://www.boot.dev/blog/golang"
 ```
+
+### 8) POST /api/login successful
+```bash
+curl -i -X POST http://localhost:8899/api/login -H 'Content-Type: application/json' -u 'frodo:ofTheNineFingers'
+```
+
+### 9) POST /api/login invalid
+```bash
+curl -i -X POST \
+-u 'saruman:invalidFormat' \
+http://localhost:8899/api/login
+```
+
+### 10) POST /api/login unsuccessful (wrong credentials)
+```bash
+curl -i -X POST \
+-u 'frodo:wrongPassword' \
+http://localhost:8899/api/login
+```
+
