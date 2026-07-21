@@ -27,63 +27,11 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// stackTracer interface to extract stack traces from errors wrapped with pkg/errors:
-type stackTracer interface {
-	error
-	StackTrace() pkgerr.StackTrace
-}
-
-// replaceAttr rewrites the "error" slog.Attr into a structured group.
-//
-// Steps:
-//  1. Resolve() forces slog to fully evaluate the value, and Any() unwraps it
-//     so the type assertion to `error` succeeds.
-//  2. Build attrs starting with "message" (the error's own text).
-//  3. linkoerr.Attrs(err) walks the error chain and returns any structured
-//     fields attached via linkoerr.WithAttrs (e.g. "path", "item_no") - these
-//     are spread with `...` so each becomes its own field in the group,
-//     instead of being nested as a single slice value.
-//     (example: store.go's walk() -> linkoerr.WithAttrs(err, "path", ...))
-//  4. If the error chain also carries a stack trace (from pkg/errors), append
-//     a "stack_trace" field too - this is optional and only added when present.
-//  5. GroupAttrs bundles everything into a single "error" group instead of one
-//     giant string, so message/attrs/stack_trace are each queryable fields.
-func replaceAttr(groups []string, a slog.Attr) slog.Attr {
-	if a.Key != "error" {
-		return a
-	}
-	// 1) Resolve() tells slog to fully resolve the value first. 2) then Any() gives you the wrapped value.
-	err, ok := a.Value.Resolve().Any().(error) //  3) then the type assertion to error works
-	if !ok {
-		return a
-	}
-	// declares a new slice named attrs that holds slog.Attr value (later more than this single value)
-	attrs := []slog.Attr{
-		{Key: "message", Value: slog.StringValue(err.Error())},
-	}
-	// ... "spreads" slice, so each element is passed as an individual argument to append
-	attrs = append(attrs, linkoerr.Attrs(err)...)
-	// linkoerr.Attrs(err) calls your helper function, which walks the error chain and
-	// returns a []slog.Attr - all the extra structured fields (like "path", "item_no", etc.)
-	//  that were attached anywhere in the chain via WithAttrs
-	// 	(example in 'store.go' walk():  ch <- ShortURL{Err: linkoerr.WithAttrs(err, "path", filepath.Join(s.dir, e.Name()))}
-
-	// else-case: stack-trace was successfully created, then add it.
-	if stackErr, ok := errors.AsType[stackTracer](err); ok {
-		attrs = append(attrs, slog.Attr{
-			Key:   "stack_trace",
-			Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
-		})
-	}
-	// each element from slice 'attrs' is added individually by using 'attrs...'
-	return slog.GroupAttrs("error", attrs...)
-}
-
 // Buffered Writer must be flushed before the program exits.
-type closeFunc func() error
+type CloseFunc func() error
 
 // Helper to set the destination(s) of the all log entries based on whether 'LINKO_LOG_FILE' environment variable is set.
-func InitializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
+func InitializeLogger(logFileEnv string) (*slog.Logger, CloseFunc, error) {
 
 	/* // A more practical approach is a single logger that routes logs to different destinations by level.
 	//For example, everything goes to STDERR, but only INFO and higher go to a file.
@@ -99,7 +47,7 @@ func InitializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 		}) // ^ Debug and above into os.Stderr ^
 		logger := slog.New(debugHandler)
 		// Create a non-operational function of type closeFunc due to no bufio.BufferedWriter, and as such, no need to .Flush()
-		var closeFn closeFunc = func() error { return nil }
+		var closeFn CloseFunc = func() error { return nil }
 		return logger, closeFn, nil
 	}
 	// Otherwise if LINKO_LOG_FILE is set, it should write both to file and STDERR.
@@ -134,7 +82,7 @@ func InitializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 
 	// ----- Safe cleanup (fn-expression) to free resources before program exits ------------
 	// Function expression to clear *bufio.Writer and close *File before program exits.
-	var closeFn closeFunc = func() error {
+	var closeFn CloseFunc = func() error {
 		if err := bufferedFile.Flush(); err != nil {
 			return err
 		}
@@ -145,3 +93,77 @@ func InitializeLogger(logFileEnv string) (*slog.Logger, closeFunc, error) {
 	}
 	return logger, closeFn, nil
 }
+
+// ###################################################################################################################
+// -- Logging errors with attributes (errors.error_1.message, errors.error_1.path, errors.error_2.message, etc) --
+// stackTracer interface to extract stack traces from errors wrapped with pkg/errors:
+type stackTracer interface {
+	error
+	StackTrace() pkgerr.StackTrace
+}
+
+type multiError interface {
+	error
+	Unwrap() []error
+}
+
+// replaceAttr rewrites the "error" slog.Attr into a structured group.
+//
+// Steps:
+//  1. Resolve() forces slog to fully evaluate the value, and Any() unwraps it
+//     so the type assertion to `error` succeeds.
+//  2. Build attrs starting with "message" (the error's own text).
+//  3. linkoerr.Attrs(err) walks the error chain and returns any structured
+//     fields attached via linkoerr.WithAttrs (e.g. "path", "item_no") - these
+//     are spread with `...` so each becomes its own field in the group,
+//     instead of being nested as a single slice value.
+//     (example: store.go's walk() -> linkoerr.WithAttrs(err, "path", ...))
+//  4. If the error chain also carries a stack trace (from pkg/errors), append
+//     a "stack_trace" field too - this is optional and only added when present.
+//  5. GroupAttrs bundles everything into a single "error" group instead of one
+//     giant string, so message/attrs/stack_trace are each queryable fields.
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if a.Key != "error" {
+		return a
+	}
+	err, ok := a.Value.Resolve().Any().(error)
+	if !ok {
+		return a
+	}
+	// Unveil whether multiple errors or a single err
+	multiErr, ok := errors.AsType[multiError](err)
+	// single-error case:
+	if !ok { // will be "error" key
+		singleErrAttrs := errorAttrs(err)
+		return slog.GroupAttrs("error", singleErrAttrs...) // // each element from slice 'attrs' is added individually by using 'attrs...'
+	}
+
+	// multi-error case: // will be "errors" key
+	var multiErrGroups []slog.Attr
+	for i, childError := range multiErr.Unwrap() {
+		// Multiple errors structured and grouped by their index+1.
+		singleErrAttrs := errorAttrs(childError)                                          // <-- helper fn called to create the error's attributes
+		numberedGroup := slog.GroupAttrs(fmt.Sprintf("error_%d", i+1), singleErrAttrs...) // error_2.path, error_2.message,
+		multiErrGroups = append(multiErrGroups, numberedGroup)                            // conceptually: [error_1.path, error_1.message] + error_2.path + error_2.message,
+	}
+	// each element from slice 'attrs' is added individually by using 'slog.Attr...' ( here: multiErrGroups... )
+	return slog.GroupAttrs("errors", multiErrGroups...) // Uses the "errors" outer group
+}
+
+// Helper function to create Error's attributes. Required to create a slog.Group by calling slog.GroupAttrs("error_i", attrs)
+func errorAttrs(err error) []slog.Attr {
+	attrs := []slog.Attr{
+		{Key: "message", Value: slog.StringValue(err.Error())},
+	}
+	attrs = append(attrs, linkoerr.Attrs(err)...)
+	// If stack trace could be found, add that as well:
+	if stackErr, ok := errors.AsType[stackTracer](err); ok {
+		attrs = append(attrs, slog.Attr{
+			Key:   "stack_trace",
+			Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
+		})
+	}
+	return attrs
+}
+
+// ###################################################################################################################
