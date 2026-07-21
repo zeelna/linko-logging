@@ -131,7 +131,13 @@ func HttpError(ctx context.Context, w http.ResponseWriter, status int, err error
 	if logCtx, ok := ctx.Value(LogContextKey).(*LogContext); ok {
 		logCtx.Error = err
 	}
-	http.Error(w, err.Error(), status)
+	// Sanitize all error's content which match to HTTP Status Code 401 (Unauthorized), 403 (Forbidden) and 500 (Internal Server Error)
+	isLeakyError := status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusInternalServerError
+	if isLeakyError {
+		http.Error(w, http.StatusText(status), status)
+	} else {
+		http.Error(w, err.Error(), status)
+	}
 }
 
 // -------------------------

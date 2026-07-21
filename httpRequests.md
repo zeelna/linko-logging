@@ -90,3 +90,10 @@ curl -sS -v -D - -o /dev/null \
   -H 'X-Request-ID: bootdev-test-id' \
   http://localhost:8899/
 ```
+
+### 11) POST /api/shorten with url: not-a-valid-url:
+```bash
+curl -u frodo:ofTheNineFingers \
+-d "url=not-a-valid-url" \
+http://localhost:8899/api/shorten
+```
