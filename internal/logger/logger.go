@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	pkgerr "github.com/pkg/errors"
 	"github.com/zeelna/linko-logging/internal/linkoerr"
@@ -16,16 +18,69 @@ import (
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
+			// Request Metadata logging:
+			spyReader := &spyReadCloser{ReadCloser: r.Body}
+			r.Body = spyReader
+
+			// Response Metadata logging (wrapping 'w', and passing in .ServeHTTP):
+			spyWriter := &spyResponseWriter{ResponseWriter: w}
+
+			// Record request start time, then subtract when the response finishes.
+			start := time.Now() // starting clock
+			next.ServeHTTP(spyWriter, r)
 			logger.Info(
 				"Served request",
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.String("client_ip", r.RemoteAddr),
+				slog.Duration("duration", time.Since(start)), // time.Since() calculates the duration
+				slog.Int("request_body_bytes", spyReader.bytesRead),
+				slog.Int("response_status", spyWriter.statusCode),
+				slog.Int("response_body_bytes", spyWriter.bytesWritten),
 			)
 		})
 	}
 }
+
+// ---------------------------
+// Request Metadata Logging
+// ---------------------------
+type spyReadCloser struct {
+	io.ReadCloser
+	bytesRead int
+}
+
+func (r *spyReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	r.bytesRead += n
+	return n, err
+}
+
+// ---------------------------
+
+// ---------------------------
+// Response Metadata Logging
+// ---------------------------
+type spyResponseWriter struct {
+	http.ResponseWriter
+	bytesWritten int
+	statusCode   int
+}
+
+func (w *spyResponseWriter) Write(p []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.statusCode = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(p)
+	w.bytesWritten += n
+	return n, err
+}
+func (w *spyResponseWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+// ---------------------------
 
 // Buffered Writer must be flushed before the program exits.
 type CloseFunc func() error
