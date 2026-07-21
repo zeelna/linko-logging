@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -60,7 +61,7 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.String("request_id", spyWriter.Header().Get("X-Request-ID")),
-				slog.String("client_ip", r.RemoteAddr),
+				slog.String("client_ip", redactIP(r.RemoteAddr)),
 				slog.Duration("duration", time.Since(start)), // time.Since() calculates the duration
 				//slog.String("user", logCtx.Username),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
@@ -294,3 +295,21 @@ func errorAttrs(err error) []slog.Attr {
 }
 
 // ###################################################################################################################
+// helper function to redact final octet of the IP address (hack solution: in reality host-portion can be more than 1 octet)
+func redactIP(address string) string {
+	// if any errors parsing / splitting, return those erroneous IP (or IPv6 or others) as-is, for debugging purposes
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return address
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return address
+	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return address
+	}
+	// We are excluding the port number if the IPv4 address was correct.
+	return fmt.Sprintf("%d.%d.%d.%s", ip4[0], ip4[1], ip4[2], "x") // change 192.168.1.4 to 192.168.1.x
+}
