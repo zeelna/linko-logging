@@ -127,15 +127,18 @@ type LogContext struct {
 	Error    error
 }
 
-// helperfn  that wraps http.Error. It still sends the HTTP response, but first stores the error in LogContext (if present) so request logs can include it
+// helperfn  that wraps http.Error. It still sends the HTTP response, but first stores the error (with stack trace and attributes) in LogContext (if present) so request logs can include it.
 func HttpError(ctx context.Context, w http.ResponseWriter, status int, err error) {
+	// 1) Firstly, log error, all structured error's attributes AND Stack-trace
 	if logCtx, ok := ctx.Value(LogContextKey).(*LogContext); ok {
-		logCtx.Error = err
+		logCtx.Error = err // good: logs with stack trace and error attributes (must not be sent to http.Error())
 	}
-	// Sanitize all error's content which match to HTTP Status Code 401 (Unauthorized), 403 (Forbidden) and 500 (Internal Server Error)
+	// 2) Secondly, sanitized "log" into HTTP Response Body. log only general HTTP Response Status titles, (examples: "Internal Server Error", "Bad Request", etc)
 	isLeakyError := status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusInternalServerError
+	// Sanitize all error's content which match to HTTP Status Code 401 (Unauthorized), 403 (Forbidden) and 500 (Internal Server Error)
 	if isLeakyError {
-		http.Error(w, http.StatusText(status), status)
+		http.Error(w, http.StatusText(status), status) // GOOD OPTION: only sanitized in HTTP Response Body. Example "Internal Server Error"
+		//http.Error(w, err.Error(), status) // BAD OPTION: includes raw error-string in HTTP Response Body. Example: "internal server error: crypto/bcrypt: hashedSecret too short to be a bcrypted password"
 	} else {
 		http.Error(w, err.Error(), status)
 	}
