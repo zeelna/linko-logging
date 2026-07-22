@@ -37,14 +37,15 @@ func (s *server) authMiddleware(next http.Handler) http.Handler {
 		}
 		ok, err := s.validatePassword(password, stored)
 		if err != nil {
+			// Step#1 Best example of Structure Error Log with Stack trace.
 			s.logger.Error("error validating password",
 				slog.String("user", username),
 				slog.Any("error", err),
 			)
-
-
+			// Step#2 Best example of including stack trace into Log WHILE ALSO sanitized Error into HTTP Response Body
 			logger.HttpError(r.Context(), w, http.StatusInternalServerError,
-				fmt.Errorf("internal server error"))
+				// linkoerr.WithAttrs(err, "reason", err.Error())) // okay solution + stack traced. Just that, duplicates info --> "error":{"message": <same_message>, "reason": <same_message> }
+				fmt.Errorf("%w", err)) // good solution: includes stack trace, that will be structured in log entry.
 			return
 		}
 		if !ok {
