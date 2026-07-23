@@ -111,3 +111,14 @@ http://localhost:8899/api/shorten
 curl -i -X POST http://127.0.0.1:8899/api/login \
 -u frodo:ofTheNineFingers
 ```
+
+## Prometheus endpoints (check address:port from 'prometheus.yml')
+### 13) GET /api/v1/targets
+```bash
+curl http://127.0.0.1:9090/api/v1/targets
+```
+
+### 14) GET  /api/v1/query?query=node_memory_MemAvailable_bytes
+```bash
+curl http://localhost:9090//api/v1/query?query=node_memory_MemAvailable_bytes
+```
