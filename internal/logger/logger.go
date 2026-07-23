@@ -12,12 +12,15 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	"github.com/natefinch/lumberjack"
 	pkgerr "github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/zeelna/linko-logging/internal/linkoerr"
 )
 
@@ -349,4 +352,48 @@ func redactURLPassword(a slog.Attr) slog.Attr {
 	}
 	parsedURL.User = url.UserPassword(parsedURL.User.Username(), "[REDACTED]")
 	return slog.String(a.Key, parsedURL.String())
+}
+
+// ############################################################
+// ## Middleware to capture custom Metrics about HTTP Requests
+// ############################################################
+
+// httpRequestsTotal counts requests by method, path and status.
+var httpRequestsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "http_requests_total",
+		Help: "Total number of HTTP requests.",
+	},
+	[]string{"method", "path", "status"},
+)
+
+// define a custom http.ResponseWriter wrapper that captures an HTTP status code when it's written:
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// Collect application-specific metrics with middleware function named MetricsMiddleware. Middleware captures each endpoints 'method', 'path', 'status' and increment the counter.
+func MetricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{
+			ResponseWriter: w,
+			status:         http.StatusOK,
+		}
+
+		next.ServeHTTP(rec, r)
+
+		path := r.URL.Path
+		method := r.Method
+		status := strconv.Itoa(rec.status)
+
+		httpRequestsTotal.
+			WithLabelValues(method, path, status).
+			Inc()
+	})
 }
