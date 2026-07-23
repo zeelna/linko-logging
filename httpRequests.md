@@ -120,5 +120,23 @@ curl http://127.0.0.1:9090/api/v1/targets
 
 ### 14) GET  /api/v1/query?query=node_memory_MemAvailable_bytes
 ```bash
-curl http://localhost:9090//api/v1/query?query=node_memory_MemAvailable_bytes
+curl http://localhost:9090/api/v1/query?query=node_memory_MemAvailable_bytes
+```
+
+### 15) GET /login with basic authentication = admin:admin
+```bash
+curl -sS "http://localhost:3000/login" | grep -q "Grafana" && echo "PASS" && curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:3000/login
+```
+
+
+### 16) GET /login with basic authentication = admin:admin
+```bash
+curl -sS -u admin:admin \ 
+-i "http://localhost:3000/login"
+```
+
+### 17) GET /api/search?query=Host%20System%20Metrics, basic authentication = admin:admin
+```bash
+curl -sS -u admin:admin \
+  -i "http://localhost:3000/api/search?query=Host%20System%20Metrics"
 ```
