@@ -157,9 +157,9 @@ curl http://localhost:9090/api/v1/query?query=go_gc_duration_seconds_count%7Bjob
 
 
 ## Find the UID of the response body, to sent to next cURL command
-### 20) GET //api/search?query=Linko%20App%20Metrics, basic authentication = admin:admin
+### 20) GET /api/search?query=Linko%20App%20Metrics, basic authentication = admin:admin
 ```bash
-curl -sS -u admin:admin GET -i "http://localhost:3000/api/dashboards/uid/ad97h7n" | grep ".title"
+curl -sS -u admin:admin "http://localhost:3000/api/search?query=Linko%20App%20Metrics" | grep ".title"
 ```
 
 ### 21) GET /api/dashboards/uid/${dashboard_uid} basic authentication = admin:admin
@@ -167,3 +167,10 @@ curl -sS -u admin:admin GET -i "http://localhost:3000/api/dashboards/uid/ad97h7n
 ```bash
 curl -sS -u admin:admin GET  -i  "http://localhost:3000/api/dashboards/uid/ad97h7n" | grep "http_requests_total"
 ```
+            
+### 22) GET /api/dashboards/uid/${dashboard_uid}  
+#### GET /api/dashboards/uid/${dashboard_uid}
+```bash   
+curl -sS -u admin:admin \ 
+GET  -i  "http://localhost:3000/api/dashboards/uid/ad97h7n" | grep -E 'barchart|http_requests_total|status'
+```     
