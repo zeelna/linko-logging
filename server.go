@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/zeelna/linko-logging/internal/logger"
 	"github.com/zeelna/linko-logging/internal/store"
 )
@@ -48,6 +49,7 @@ func newServer(store store.Store, myLogger *slog.Logger, port int, cancel contex
 	}
 
 	mux.Handle("GET /", http.HandlerFunc(s.handlerIndex))
+	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("POST /api/login", s.authMiddleware(http.HandlerFunc(s.handlerLogin)))
 	mux.Handle("POST /api/shorten", s.authMiddleware(http.HandlerFunc(s.handlerShortenLink)))
 	mux.Handle("GET /api/stats", s.authMiddleware(http.HandlerFunc(s.handlerStats)))
