@@ -57,3 +57,5 @@ node_filesystem_avail_bytes
 ```
 
 ################################################
+# Bugfix: in 'prometheus.yml' extra_hosts once you get connection back again
+###########################
