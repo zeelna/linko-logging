@@ -140,3 +140,18 @@ curl -sS -u admin:admin \
 curl -sS -u admin:admin \
   -i "http://localhost:3000/api/search?query=Host%20System%20Metrics"
 ```
+
+### 18) GET /metrics from Linko
+```bash
+curl http://localhost:8899/metrics
+```
+
+```bash
+curl -sS http://localhost:8899/metrics | grep "go_gc_duration_seconds"
+```
+
+### 19) GET http://localhost:9090/api/v1/query?query=go_gc_duration_seconds_count%7Bjob%3D%22linko%22%7D from Prometheus
+```bash
+curl http://localhost:9090/api/v1/query?query=go_gc_duration_seconds_count%7Bjob%3D%22linko%22%7D
+```
+
