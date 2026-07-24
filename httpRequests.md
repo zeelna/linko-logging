@@ -147,6 +147,10 @@ curl http://localhost:8899/metrics
 ```
 
 ```bash
+curl http://localhost:8899/metrics | grep -E 'http_requests_total|path|status'
+```
+
+```bash
 curl -sS http://localhost:8899/metrics | grep "go_gc_duration_seconds"
 ```
 
